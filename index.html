@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Банкет Шеф</title>
+<link rel="manifest" href="manifest.json">
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif;color:#171717;background:#f5f5f7}
+*{box-sizing:border-box} body{margin:0;background:#f5f5f7} button,input{font:inherit}
+.app{max-width:720px;margin:auto;min-height:100vh;padding-bottom:90px}
+header{padding:20px 18px 12px;background:#fff;position:sticky;top:0;z-index:5;border-bottom:1px solid #eee}
+h1{font-size:30px;margin:0 0 4px}.sub{color:#777;font-size:14px}
+main{padding:14px}.card{background:#fff;border-radius:18px;padding:16px;margin-bottom:12px;box-shadow:0 1px 5px #0000000b}
+.row{display:flex;gap:10px;align-items:center}.between{justify-content:space-between}
+label{font-size:13px;color:#666;display:block;margin-bottom:5px}
+input{width:100%;border:1px solid #ddd;border-radius:12px;padding:11px;background:#fff}
+.btn{border:0;border-radius:13px;padding:12px 15px;font-weight:600;background:#111;color:#fff}.btn.light{background:#eee;color:#111}
+.btn.full{width:100%}.danger{color:#b00020;background:#fff0f2}
+.tabs{display:flex;gap:8px;overflow:auto;margin-bottom:12px}.tab{white-space:nowrap;border:0;border-radius:999px;padding:9px 13px;background:#e8e8ed}.tab.active{background:#111;color:#fff}
+.dish{padding:13px 0;border-top:1px solid #eee}.dish:first-child{border-top:0}.dish h3{font-size:16px;margin:0 0 4px}.meta{font-size:12px;color:#777}
+.qty{display:flex;align-items:center;gap:9px}.round{width:34px;height:34px;border:0;border-radius:50%;background:#eee;font-size:20px}
+.product{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #eee}.product:last-child{border-bottom:0}
+.empty{text-align:center;color:#777;padding:30px 10px}.small{font-size:12px;color:#777}.ok{color:#16803a}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;padding:9px max(14px,env(safe-area-inset-left)) calc(9px + env(safe-area-inset-bottom));display:flex;justify-content:center;z-index:10}
+.navinner{max-width:720px;width:100%;display:flex;gap:8px}.navinner button{flex:1;border:0;background:transparent;padding:8px;color:#666}.navinner button.active{color:#111;font-weight:700}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>🍽️ Банкет Шеф</h1><div class="sub">Расчёт банкетов по базе ТТК</div></header>
+<main id="view"></main>
+<nav><div class="navinner">
+<button id="navBanquets" class="active" onclick="show('banquets')">📅<br>Банкеты</button>
+<button id="navDishes" onclick="show('dishes')">🍽️<br>Блюда</button>
+</div></nav>
+</div>
+<script>
+let DB=null, state=JSON.parse(localStorage.getItem('banketChef')||'{"banquets":[],"current":null}');
+const save=()=>localStorage.setItem('banketChef',JSON.stringify(state));
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+function fmtKg(v){return v>=1?`${v.toFixed(2)} кг`:`${Math.round(v*1000)} г`}
+async function init(){DB=await fetch('database.json').then(r=>r.json());show('banquets')}
+function show(page){
+ document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+ document.getElementById(page==='banquets'?'navBanquets':'navDishes').classList.add('active');
+ page==='banquets'?renderBanquets():renderDishes();
+}
+function renderBanquets(){
+ let h=`<div class="card"><div class="row between"><div><b>Мои банкеты</b><div class="small">Все сохранённые расчёты</div></div><button class="btn" onclick="newBanquet()">＋ Новый</button></div></div>`;
+ if(!state.banquets.length) h+=`<div class="card empty">Создай первый банкет.</div>`;
+ state.banquets.forEach((b,i)=>h+=`<div class="card" onclick="openBanquet(${i})"><div class="row between"><div><b>${esc(b.name)}</b><div class="small">${b.guests} гостей · ${esc(b.date)}</div></div><span>›</span></div></div>`);
+ document.getElementById('view').innerHTML=h;
+}
+function newBanquet(){
+ state.banquets.unshift({name:'Новый банкет',guests:50,date:new Date().toLocaleDateString('ru-RU'),items:[]});save();openBanquet(0)
+}
+function openBanquet(i){state.current=i;renderEditor()}
+function renderEditor(){
+ const b=state.banquets[state.current];
+ let h=`<div class="card"><div class="row between"><b>Параметры</b><button class="btn light" onclick="show('banquets')">Назад</button></div><div style="margin-top:12px"><label>Название</label><input value="${esc(b.name)}" onchange="edit('name',this.value)"></div><div style="margin-top:10px"><label>Количество гостей</label><input type="number" min="1" value="${b.guests}" onchange="edit('guests',Math.max(1,+this.value||1))"></div></div>`;
+ h+=`<div class="card"><div class="row between"><b>Блюда</b><button class="btn" onclick="addDish()">＋ Добавить</button></div>`;
+ if(!b.items.length) h+=`<div class="empty">Выбери банкетные позиции.</div>`;
+ b.items.forEach((it,j)=>h+=`<div class="dish"><div class="row between"><div><h3>${esc(it.name)}</h3><div class="meta">${esc(it.category)}</div></div><button class="btn danger" onclick="removeDish(${j})">Удалить</button></div><div class="qty" style="margin-top:9px"><button class="round" onclick="changeQty(${j},-1)">−</button><b>${it.portions} порц.</b><button class="round" onclick="changeQty(${j},1)">＋</button></div></div>`);
+ h+=`</div>`;
+ const totals=calc(b);
+ h+=`<div class="card"><div class="row between"><b>Итоговая закупка</b><span class="ok">${totals.length} поз.</span></div>`;
+ if(!totals.length) h+=`<div class="empty">Здесь появятся продукты после выбора блюд.</div>`;
+ totals.forEach(x=>h+=`<div class="product"><span>${esc(x.name)}</span><b>${fmtKg(x.qty)}</b></div>`);
+ h+=`</div><button class="btn full" onclick="share()">Поделиться расчётом</button>`;
+ document.getElementById('view').innerHTML=h;
+}
+function edit(k,v){state.banquets[state.current][k]=v;save()}
+function changeQty(j,d){let b=state.banquets[state.current];b.items[j].portions=Math.max(1,b.items[j].portions+d);save();renderEditor()}
+function removeDish(j){state.banquets[state.current].items.splice(j,1);save();renderEditor()}
+function addDish(){
+ const b=state.banquets[state.current];
+ let h=`<div class="card"><button class="btn light" onclick="renderEditor()">← Назад</button><h2>Банкетные позиции</h2><input id="search" placeholder="Поиск блюда" oninput="filterDishes()">`;
+ h+=`<div id="dishList">${dishList('')}</div></div>`;
+ document.getElementById('view').innerHTML=h;
+}
+function filterDishes(){document.getElementById('dishList').innerHTML=dishList(document.getElementById('search').value)}
+function dishList(q){
+ let h='';
+ DB.categories.forEach(c=>{
+  const ds=DB.positions.filter(d=>d.category===c.name && (!q||d.name.toLowerCase().includes(q.toLowerCase())));
+  if(ds.length){h+=`<h3>${esc(c.name)}</h3>`;ds.forEach(d=>h+=`<div class="dish" onclick="selectDish('${esc(d.id)}')"><h3>${esc(d.name)}</h3><div class="meta">${d.output_kg?`Выход ${Math.round(d.output_kg*1000)} г`:''}</div></div>`)}
+ });return h||'<div class="empty">Ничего не найдено.</div>'
+}
+function selectDish(id){const d=DB.positions.find(x=>x.id===id),b=state.banquets[state.current];b.items.push({id:d.id,name:d.name,category:d.category,portions:b.guests});save();renderEditor()}
+function calc(b){
+ const map={};
+ b.items.forEach(it=>{const d=DB.positions.find(x=>x.id===it.id);if(!d)return;d.ingredients.forEach(g=>{if(g.qty_kg==null)return;const key=g.name+'|'+(g.unit||'кг');if(!map[key])map[key]={name:g.name,qty:0};map[key].qty+=g.qty_kg*it.portions})});
+ return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'ru'))
+}
+function renderDishes(){
+ let h=`<div class="card"><b>База банкетных блюд</b><div class="small" style="margin-top:4px">${DB.positions.length} позиций из базы</div></div>`;
+ DB.categories.forEach(c=>{const ds=DB.positions.filter(d=>d.category===c.name);if(ds.length){h+=`<div class="card"><h3>${esc(c.name)}</h3>`;ds.forEach(d=>h+=`<div class="dish"><h3>${esc(d.name)}</h3><div class="meta">${d.output_kg?`Выход ${Math.round(d.output_kg*1000)} г · `:''}${d.ingredients.length} ингредиентов</div></div>`);h+='</div>'}});
+ document.getElementById('view').innerHTML=h;
+}
+async function share(){
+ const b=state.banquets[state.current],t=calc(b);
+ let text=`Банкет: ${b.name}\nГостей: ${b.guests}\n\nПродукты:\n`+t.map(x=>`${x.name} — ${fmtKg(x.qty)}`).join('\n');
+ if(navigator.share) await navigator.share({title:'Банкет Шеф',text}); else {await navigator.clipboard.writeText(text);alert('Расчёт скопирован')}
+}
+init()
+</script>
+</body>
+</html>
