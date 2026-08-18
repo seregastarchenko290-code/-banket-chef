@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Банкет Шеф</title>
+<link rel="manifest" href="manifest.json">
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif;color:#171717;background:#f5f5f7}
+*{box-sizing:border-box}body{margin:0;background:#f5f5f7}.app{max-width:760px;margin:auto;min-height:100vh;padding-bottom:90px}
+header{padding:20px 18px 12px;background:#fff;position:sticky;top:0;z-index:5;border-bottom:1px solid #eee}
+h1{font-size:30px;margin:0 0 4px}.sub{color:#777;font-size:14px}
+main{padding:14px}.card{background:#fff;border-radius:18px;padding:16px;margin-bottom:12px;box-shadow:0 1px 5px #0000000b}
+.row{display:flex;gap:10px;align-items:center}.between{justify-content:space-between}.wrap{flex-wrap:wrap}
+label{font-size:13px;color:#666;display:block;margin-bottom:5px}
+input,select{width:100%;border:1px solid #ddd;border-radius:12px;padding:11px;background:#fff}
+.btn{border:0;border-radius:13px;padding:12px 15px;font-weight:600;background:#111;color:#fff}.btn.light{background:#eee;color:#111}.btn.full{width:100%}
+.danger{color:#b00020;background:#fff0f2}.ok{color:#16803a}.warn{color:#9a6400}.small{font-size:12px;color:#777}
+.tabs{display:flex;gap:8px;overflow:auto;margin-bottom:12px}.tab{white-space:nowrap;border:0;border-radius:999px;padding:9px 13px;background:#e8e8ed}.tab.active{background:#111;color:#fff}
+.dish{padding:13px 0;border-top:1px solid #eee}.dish:first-child{border-top:0}.dish h3{font-size:16px;margin:0 0 4px}.meta{font-size:12px;color:#777}
+.qty{display:flex;align-items:center;gap:9px}.round{width:34px;height:34px;border:0;border-radius:50%;background:#eee;font-size:20px}
+.product{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #eee}.product:last-child{border-bottom:0}
+.empty{text-align:center;color:#777;padding:30px 10px}
+.drop{border:2px dashed #bbb;border-radius:18px;padding:28px 16px;text-align:center;background:#fafafa}.drop.drag{border-color:#111;background:#f0f0f0}
+.badge{display:inline-block;border-radius:999px;padding:5px 9px;background:#eee;font-size:12px;margin:3px}.badge.ok{background:#e8f6ed}.badge.warn{background:#fff3d9}
+.progress{height:8px;background:#eee;border-radius:8px;overflow:hidden}.progress>div{height:100%;width:0;background:#111}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;padding:9px 14px calc(9px + env(safe-area-inset-bottom));display:flex;justify-content:center;z-index:10}
+.navinner{max-width:760px;width:100%;display:flex;gap:8px}.navinner button{flex:1;border:0;background:transparent;padding:8px;color:#666}.navinner button.active{color:#111;font-weight:700}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>🍽️ Банкет Шеф</h1><div class="sub">Excel → ТТК → продукты</div></header>
+<main id="view"></main>
+<nav><div class="navinner">
+<button id="navHome" class="active" onclick="show('home')">🏠<br>Главная</button>
+<button id="navBanquets" onclick="show('banquets')">📅<br>Банкеты</button>
+<button id="navDishes" onclick="show('dishes')">🍽️<br>Блюда</button>
+</div></nav>
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script>
+let DB=null;
+let state=JSON.parse(localStorage.getItem('banketChefV2')||'{"banquets":[],"current":null}');
+const save=()=>localStorage.setItem('banketChefV2',JSON.stringify(state));
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const norm=s=>String(s??'').toLowerCase().replace(/ё/g,'е').replace(/[«»"']/g,'').replace(/[^a-zа-я0-9]+/gi,' ').trim();
+const num=s=>{let n=parseFloat(String(s??'').replace(/\s/g,'').replace(',','.').replace(/[^\d.-]/g,''));return Number.isFinite(n)?n:null};
+async function init(){DB=await fetch('database.json').then(r=>r.json());show('home')}
+function show(page){
+ document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+ document.getElementById('nav'+(page==='home'?'Home':page==='banquets'?'Banquets':'Dishes')).classList.add('active');
+ if(page==='home')renderHome(); else if(page==='banquets')renderBanquets(); else renderDishes();
+}
+function renderHome(){
+ document.getElementById('view').innerHTML=`
+ <div class="card">
+   <b style="font-size:20px">Автоматический расчёт из Excel</b>
+   <div class="small" style="margin:5px 0 14px">Загрузите табель банкета — приложение само попробует найти дату, гостей и блюда.</div>
+   <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+     <div style="font-size:40px">📂</div><b>Загрузить банкет</b><div class="small">XLSX / XLS</div>
+     <input id="file" type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this.files[0])">
+   </div>
+   <div id="status" style="margin-top:12px"></div>
+ </div>
+ <div class="card">
+   <div class="row between"><div><b>Последние банкеты</b><div class="small">${state.banquets.length} сохранено</div></div><button class="btn light" onclick="show('banquets')">Открыть</button></div>
+ </div>`;
+ const drop=document.getElementById('drop');
+ drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});
+ drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
+ drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');importExcel(e.dataTransfer.files[0])});
+}
+function status(t,cls=''){const el=document.getElementById('status');if(el)el.innerHTML=`<div class="${cls}">${t}</div>`}
+async function importExcel(file){
+ if(!file)return;
+ status('Читаю Excel…');
+ try{
+   const data=await file.arrayBuffer();
+   const wb=XLSX.read(data,{type:'array',cellDates:true});
+   const info=parseWorkbook(wb);
+   if(!info.items.length){
+      status('Блюда не распознаны. Откройте «Показать строки Excel» и сопоставьте позиции вручную.','warn');
+   }
+   const b={name:info.name||file.name.replace(/\.(xlsx|xls)$/i,''),date:info.date||'',guests:info.guests||1,items:info.items,source:file.name,raw:info.raw.slice(0,120)};
+   state.banquets.unshift(b);state.current=0;save();renderImported();
+ }catch(e){console.error(e);status('Не удалось прочитать файл: '+esc(e.message),'warn')}
+}
+function parseWorkbook(wb){
+ let date='',name='',guests=null,items=[],raw=[];
+ const aliases=DB.positions.map(d=>({d,n:norm(d.name)})).filter(x=>x.n);
+ // First pass: turn sheets into arrays of rows.
+ const sheets=[];
+ wb.SheetNames.forEach(sn=>{
+   const ws=wb.Sheets[sn];
+   const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+   sheets.push({sn,rows});
+   rows.forEach(r=>{if(r.some(x=>String(x).trim()))raw.push({sheet:sn,row:r})});
+ });
+ // Metadata search
+ for(const s of sheets){
+   for(let i=0;i<s.rows.length;i++){
+     const r=s.rows[i].map(x=>String(x).trim());
+     const line=r.join(' | ');
+     const nl=norm(line);
+     if(!date && /(19|20)\d{2}/.test(line) && /(\d{1,2}[./-]\d{1,2})/.test(line)) {
+       const m=line.match(/\b(\d{1,2}[./-]\d{1,2}[./-](?:19|20)?\d{2})\b/); if(m)date=m[1];
+     }
+     if(!guests){
+       const gi=r.findIndex(x=>/(гост|чел|персон|взросл)/i.test(x));
+       if(gi>=0){for(let j=gi+1;j<Math.min(r.length,gi+4);j++){let n=num(r[j]);if(n){guests=Math.round(n);break}}}
+       if(!guests){const m=line.match(/(\d{1,4})\s*(?:взросл|гост|чел)/i);if(m)guests=+m[1]}
+     }
+     if(!name && /(назван|мероприят|банкет|заказ)/i.test(line)){
+       const vals=r.filter(Boolean); if(vals.length>=2)name=vals[vals.length-1];
+     }
+   }
+ }
+ // Match dishes by exact normalized name, then substring.
+ const seen={};
+ for(const s of sheets){
+   for(let i=0;i<s.rows.length;i++){
+     const r=s.rows[i].map(x=>String(x).trim());
+     const line=norm(r.join(' '));
+     if(!line)continue;
+     let hit=null;
+     for(const a of aliases){if(line===a.n || line.includes(' '+a.n+' ') || line.startsWith(a.n+' ') || line.endsWith(' '+a.n)){hit=a;break}}
+     if(!hit){
+       // relaxed: exact cell match
+       const cell=r.find(x=>aliases.some(a=>norm(x)===a.n));
+       if(cell){hit=aliases.find(a=>norm(cell)===a.n)}
+     }
+     if(hit){
+       let portions=null;
+       // Look around likely numeric columns. Prefer numbers after dish name.
+       const idx=r.findIndex(x=>norm(x)===hit.n);
+       const nums=r.map((x,k)=>({k,n:num(x)})).filter(x=>x.n!=null && x.n>0);
+       if(nums.length){
+         const after=nums.filter(x=>idx<0||x.k>idx);
+         portions=(after[0]||nums[0]).n;
+       }
+       if(!portions)portions=guests||1;
+       const key=hit.d.id;
+       if(!seen[key])seen[key]={id:hit.d.id,name:hit.d.name,category:hit.d.category,portions:portions,sourceRow:i+1,sheet:s.sn};
+       else seen[key].portions=Math.max(seen[key].portions,portions);
+     }
+   }
+ }
+ items=Object.values(seen);
+ return {date,name,guests,items,raw};
+}
+function renderImported(){
+ const b=state.banquets[state.current];
+ const totals=calc(b);
+ let h=`<div class="card"><div class="row between"><div><b>Банкет распознан</b><div class="small">${esc(b.source||'Excel')}</div></div><button class="btn light" onclick="show('banquets')">Назад</button></div>
+ <div class="row wrap" style="margin-top:12px">
+ <span class="badge ${b.name?'ok':'warn'}">Название: ${esc(b.name||'—')}</span>
+ <span class="badge ${b.guests?'ok':'warn'}">Гостей: ${b.guests||'—'}</span>
+ <span class="badge">${b.items.length} блюд</span>
+ </div></div>`;
+ h+=`<div class="card"><div class="row between"><b>Распознанные блюда</b><button class="btn" onclick="addDish()">＋ Добавить</button></div>`;
+ if(!b.items.length)h+=`<div class="empty">Ничего не распознано автоматически.</div>`;
+ b.items.forEach((it,j)=>h+=`<div class="dish"><div class="row between"><div><h3>${esc(it.name)}</h3><div class="meta">${esc(it.category)} · строка ${it.sourceRow}</div></div><button class="btn danger" onclick="removeDish(${j})">Удалить</button></div><div class="qty" style="margin-top:9px"><button class="round" onclick="changeQty(${j},-1)">−</button><b>${it.portions} порц.</b><button class="round" onclick="changeQty(${j},1)">＋</button></div></div>`);
+ h+=`</div>`;
+ h+=`<div class="card"><div class="row between"><b>Закупочная ведомость</b><span class="ok">${totals.length} поз.</span></div>`;
+ totals.forEach(x=>h+=`<div class="product"><span>${esc(x.name)}</span><b>${fmt(x.qty,x.unit)}</b></div>`);
+ h+=`</div><div class="card"><button class="btn full" onclick="share()">📤 Поделиться расчётом</button><button class="btn full light" style="margin-top:8px" onclick="exportCSV()">📊 Скачать CSV</button></div>`;
+ document.getElementById('view').innerHTML=h;
+}
+function fmt(q,u){if(u==='л')return q>=1?`${q.toFixed(2)} л`:`${Math.round(q*1000)} мл`;if(u==='шт')return `${Math.round(q*1000)/1000} шт`;return q>=1?`${q.toFixed(2)} кг`:`${Math.round(q*1000)} г`}
+function calc(b){
+ const map={};
+ b.items.forEach(it=>{const d=DB.positions.find(x=>x.id===it.id);if(!d)return;d.ingredients.forEach(g=>{
+   if(g.qty_kg==null)return;
+   const unit=g.unit||'кг',key=norm(g.name)+'|'+unit;
+   if(!map[key])map[key]={name:g.name,qty:0,unit};
+   map[key].qty+=g.qty_kg*it.portions;
+ })});
+ return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+function edit(k,v){state.banquets[state.current][k]=v;save();renderImported()}
+function changeQty(j,d){const b=state.banquets[state.current];b.items[j].portions=Math.max(1,b.items[j].portions+d);save();renderImported()}
+function removeDish(j){state.banquets[state.current].items.splice(j,1);save();renderImported()}
+function addDish(){
+ let h=`<div class="card"><button class="btn light" onclick="renderImported()">← Назад</button><h2>Банкетные позиции</h2><input id="search" placeholder="Поиск блюда" oninput="filterDishes()"><div id="dishList">${dishList('')}</div></div>`;
+ document.getElementById('view').innerHTML=h;
+}
+function filterDishes(){document.getElementById('dishList').innerHTML=dishList(document.getElementById('search').value)}
+function dishList(q){let h='';DB.categories.forEach(c=>{const ds=DB.positions.filter(d=>d.category===c.name&&(!q||d.name.toLowerCase().includes(q.toLowerCase())));if(ds.length){h+=`<h3>${esc(c.name)}</h3>`;ds.forEach(d=>h+=`<div class="dish" onclick="selectDish('${esc(d.id)}')"><h3>${esc(d.name)}</h3><div class="meta">${d.output_kg?`Выход ${Math.round(d.output_kg*1000)} г`:''}</div></div>`)}});return h||'<div class="empty">Ничего не найдено.</div>'}
+function selectDish(id){const d=DB.positions.find(x=>x.id===id),b=state.banquets[state.current];b.items.push({id:d.id,name:d.name,category:d.category,portions:b.guests||1,sourceRow:'ручной'});save();renderImported()}
+function renderBanquets(){
+ let h=`<div class="card"><div class="row between"><div><b>Мои банкеты</b><div class="small">Автоматически импортированные Excel-файлы</div></div><button class="btn" onclick="show('home')">＋ Загрузить</button></div></div>`;
+ if(!state.banquets.length)h+=`<div class="card empty">Загрузи первый Excel-банкет.</div>`;
+ state.banquets.forEach((b,i)=>h+=`<div class="card" onclick="state.current=${i};renderImported()"><div class="row between"><div><b>${esc(b.name)}</b><div class="small">${b.guests} гостей · ${b.items.length} блюд · ${esc(b.source||'')}</div></div><span>›</span></div></div>`);
+ document.getElementById('view').innerHTML=h;
+}
+function renderDishes(){
+ let h=`<div class="card"><b>База банкетных блюд</b><div class="small" style="margin-top:4px">${DB.positions.length} позиций</div></div>`;
+ DB.categories.forEach(c=>{const ds=DB.positions.filter(d=>d.category===c.name);if(ds.length){h+=`<div class="card"><h3>${esc(c.name)}</h3>`;ds.forEach(d=>h+=`<div class="dish"><h3>${esc(d.name)}</h3><div class="meta">${d.ingredients.length} ингредиентов</div></div>`);h+='</div>'}});
+ document.getElementById('view').innerHTML=h;
+}
+function exportCSV(){
+ const b=state.banquets[state.current],t=calc(b);
+ const rows=[['Банкет',b.name],['Гостей',b.guests],[],['Продукт','Количество','Ед.'],...t.map(x=>[x.name,x.qty,x.unit])];
+ const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\n');
+ const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(b.name||'банкет')+'_закупка.csv';a.click();URL.revokeObjectURL(a.href);
+}
+async function share(){
+ const b=state.banquets[state.current],t=calc(b);
+ const text=`Банкет: ${b.name}\nГостей: ${b.guests}\n\nПродукты:\n`+t.map(x=>`${x.name} — ${fmt(x.qty,x.unit)}`).join('\n');
+ if(navigator.share)await navigator.share({title:'Банкет Шеф',text});else{await navigator.clipboard.writeText(text);alert('Расчёт скопирован')}
+}
+init();
+</script>
+</body></html>
